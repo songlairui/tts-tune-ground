@@ -12,7 +12,6 @@ export function useLocalStorage<T>(key: string, initialValue: T) {
       }
     },
     staleTime: Infinity,
-    initialData: initialValue,
   })
 }
 
