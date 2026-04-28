@@ -22,6 +22,8 @@
     "@t3-oss/env-core": "^0.13.10",
     "@tailwindcss/vite": "^4.1.18",
     "@tanstack/ai": "^0.14.0",
+    "@tanstack/ai-openai": "^0.8.2",
+    "@tanstack/ai-react": "^0.8.0",
     "@tanstack/match-sorter-utils": "latest",
     "@tanstack/react-devtools": "latest",
     "@tanstack/react-form": "latest",

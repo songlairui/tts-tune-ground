@@ -28,6 +28,7 @@
 - [x] 创建 `orpc/router/tts.ts`，实现 `generateTts` procedure
 - [x] 在 `orpc/router/index.ts` 中聚合 tts 路由
 - [x] 处理 API 错误转发
+- [x] 支持流式响应（pcm16 格式）
 - **验收:** 可以通过 oRPC 客户端调用 tts.generate
 
 ### Task 1.3: 创建 React Query hooks
