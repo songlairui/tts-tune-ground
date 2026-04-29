@@ -21,6 +21,7 @@ import { StreamChunks } from '#/components/tts/StreamChunks'
 import { RequestPreview } from '#/components/tts/RequestPreview'
 import { Card, CardContent, CardHeader, CardTitle } from '#/components/ui/card'
 import { Button } from '#/components/ui/button'
+import { ModeToggle } from '#/components/mode-toggle'
 
 export const Route = createFileRoute('/')({ component: Home })
 
@@ -133,6 +134,7 @@ function Home() {
         <div className="flex items-center justify-between">
           <h1 className="text-3xl font-bold">TTS API 调试台</h1>
           <div className="flex items-center gap-4">
+            <ModeToggle />
             <Button variant="outline" size="sm" onClick={resetForm}>
               🔄 Reset
             </Button>
