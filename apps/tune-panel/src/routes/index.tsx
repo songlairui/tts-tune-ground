@@ -17,6 +17,7 @@ import { GenerateButton } from '#/components/tts/GenerateButton'
 import { JsonViewer } from '#/components/tts/JsonViewer'
 import { AudioPlayer } from '#/components/tts/AudioPlayer'
 import { AudioActions } from '#/components/tts/AudioActions'
+import { StreamChunks } from '#/components/tts/StreamChunks'
 import { Card, CardContent, CardHeader, CardTitle } from '#/components/ui/card'
 import { Button } from '#/components/ui/button'
 
@@ -26,7 +27,7 @@ function Home() {
   // Form state with persistence
   const { formData, updateField, resetForm } = useTtsForm()
 
-  // Audio state
+  // Audio state for non-streaming
   const [isPlaying, setIsPlaying] = useState(false)
   const [lastResult, setLastResult] = useState<{
     audioData: string
@@ -41,8 +42,6 @@ function Home() {
   // Compute effective userMessage based on voice mode
   const effectiveUserMessage = useMemo(() => {
     if (formData.voiceMode === 'design') {
-      // Voice design: voice description goes in user message
-      // Combine with style input if both exist
       const parts = [formData.voiceDescription, formData.userMessage].filter(Boolean)
       return parts.join('\n') || undefined
     }
@@ -76,34 +75,23 @@ function Home() {
     setIsPlaying(false)
   })
 
-  // Streaming hook (tanstack/ai)
-  const streamHook = useTtsStream(
-    {
-      model: formData.model,
-      apiKey: apiKey || '',
-      userMessage: effectiveUserMessage,
-      voice: getCurrentVoice(),
-      format: formData.audioFormat,
-    },
-    (data) => {
-      setLastResult(data)
-      setIsPlaying(false)
-    },
-  )
+  // Streaming hook
+  const stream = useTtsStream()
 
   // Handle generate
   const handleGenerate = useCallback(() => {
     if (!apiKey) return
 
     if (formData.stream) {
-      // Use tanstack/ai streaming
-      streamHook.generate({
+      stream.startStream({
+        model: formData.model,
+        apiKey,
         text: formData.assistantMessage,
+        userMessage: effectiveUserMessage,
         voice: getCurrentVoice(),
-        format: formData.audioFormat === 'pcm16' ? 'pcm' : 'wav',
+        format: formData.audioFormat,
       })
     } else {
-      // Use oRPC non-streaming
       generateMutation.mutate({
         apiKey,
         model: formData.model,
@@ -114,24 +102,28 @@ function Home() {
         stream: false,
       })
     }
-  }, [apiKey, formData, generateMutation, streamHook, effectiveUserMessage])
+  }, [apiKey, formData, generateMutation, stream, effectiveUserMessage])
 
   // Handle cancel
   const handleCancel = useCallback(() => {
     if (formData.stream) {
-      streamHook.stop()
+      stream.stop()
     }
-  }, [formData.stream, streamHook])
+  }, [formData.stream, stream])
 
   // Loading state
   const isLoading = formData.stream
-    ? streamHook.isLoading
+    ? stream.isStreaming
     : generateMutation.isPending
 
   // Error state
   const error = formData.stream
-    ? streamHook.error?.message
+    ? stream.error
     : generateMutation.error?.message
+
+  // Audio data (unified for both paths)
+  const audioData = formData.stream ? stream.audioData : lastResult?.audioData
+  const audioFormat = formData.stream ? (formData.audioFormat === 'pcm16' ? 'pcm' : 'wav') : lastResult?.format
 
   // Generate curl command
   const curlCommand = useMemo(() => {
@@ -285,6 +277,22 @@ function Home() {
 
           {/* Right Column: Output */}
           <div className="space-y-6">
+            {/* Stream Chunks (streaming mode only) */}
+            {formData.stream && stream.chunks.length > 0 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg">Stream Chunks</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <StreamChunks
+                    chunks={stream.chunks}
+                    audioBytes={stream.audioBytes}
+                    isStreaming={stream.isStreaming}
+                  />
+                </CardContent>
+              </Card>
+            )}
+
             {/* Audio Player */}
             <Card>
               <CardHeader>
@@ -292,31 +300,35 @@ function Home() {
               </CardHeader>
               <CardContent className="space-y-4">
                 <AudioPlayer
-                  audioData={lastResult?.audioData}
-                  format={lastResult?.format}
+                  chunks={formData.stream ? stream.chunks : undefined}
+                  audioData={formData.stream ? undefined : (lastResult?.audioData ?? undefined)}
+                  format={audioFormat}
+                  isStreaming={formData.stream ? stream.isStreaming : undefined}
                   isPlaying={isPlaying}
                   onPlayPause={() => setIsPlaying(!isPlaying)}
                 />
                 <AudioActions
-                  audioData={lastResult?.audioData}
-                  format={lastResult?.format}
+                  audioData={audioData ?? undefined}
+                  format={audioFormat}
                 />
               </CardContent>
             </Card>
 
-            {/* JSON Viewer */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg">API Debug</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <JsonViewer
-                  requestBody={lastResult?.requestBody}
-                  responseBody={lastResult?.responseBody}
-                  error={error}
-                />
-              </CardContent>
-            </Card>
+            {/* JSON Viewer (non-streaming) */}
+            {!formData.stream && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg">API Debug</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <JsonViewer
+                    requestBody={lastResult?.requestBody}
+                    responseBody={lastResult?.responseBody}
+                    error={error ?? undefined}
+                  />
+                </CardContent>
+              </Card>
+            )}
           </div>
         </div>
       </div>
