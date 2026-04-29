@@ -18,6 +18,7 @@ import { JsonViewer } from '#/components/tts/JsonViewer'
 import { AudioPlayer } from '#/components/tts/AudioPlayer'
 import { AudioActions } from '#/components/tts/AudioActions'
 import { StreamChunks } from '#/components/tts/StreamChunks'
+import { RequestPreview } from '#/components/tts/RequestPreview'
 import { Card, CardContent, CardHeader, CardTitle } from '#/components/ui/card'
 import { Button } from '#/components/ui/button'
 
@@ -125,31 +126,6 @@ function Home() {
   const audioData = formData.stream ? stream.audioData : lastResult?.audioData
   const audioFormat = formData.stream ? (formData.audioFormat === 'pcm16' ? 'pcm' : 'wav') : lastResult?.format
 
-  // Generate curl command
-  const curlCommand = useMemo(() => {
-    const messages = []
-    if (effectiveUserMessage) {
-      messages.push({ role: 'user', content: effectiveUserMessage })
-    }
-    messages.push({ role: 'assistant', content: formData.assistantMessage })
-
-    const body: Record<string, unknown> = {
-      model: formData.model,
-      messages,
-      audio: { format: formData.audioFormat },
-      stream: formData.stream,
-    }
-
-    if (formData.voiceMode === 'builtin' && formData.model !== 'mimo-v2.5-tts-voicedesign') {
-      (body.audio as Record<string, unknown>).voice = formData.builtinVoice
-    }
-
-    return `curl --location --request POST 'https://api.xiaomimimo.com/v1/chat/completions' \\
-  --header "api-key: ${apiKey || 'YOUR_API_KEY'}" \\
-  --header 'Content-Type: application/json' \\
-  --data-raw '${JSON.stringify(body, null, 2)}'`
-  }, [apiKey, formData, effectiveUserMessage])
-
   return (
     <div className="min-h-screen bg-background p-6">
       <div className="max-w-6xl mx-auto space-y-6">
@@ -251,26 +227,23 @@ function Home() {
               </div>
             )}
 
-            {/* Curl Command */}
+            {/* Request Preview */}
             <Card>
               <CardHeader>
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-lg">Test with curl</CardTitle>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      navigator.clipboard.writeText(curlCommand)
-                    }}
-                  >
-                    📋 Copy curl
-                  </Button>
-                </div>
+                <CardTitle className="text-lg">请求预览</CardTitle>
               </CardHeader>
               <CardContent>
-                <pre className="text-xs bg-muted p-4 rounded-lg overflow-x-auto whitespace-pre-wrap break-all">
-                  <code>{curlCommand}</code>
-                </pre>
+                <RequestPreview
+                  model={formData.model}
+                  voiceMode={formData.voiceMode}
+                  builtinVoice={formData.builtinVoice}
+                  voiceDescription={formData.voiceDescription}
+                  voiceCloneBase64={formData.voiceCloneBase64}
+                  userMessage={formData.userMessage}
+                  assistantMessage={formData.assistantMessage}
+                  audioFormat={formData.audioFormat}
+                  apiKey={apiKey || ''}
+                />
               </CardContent>
             </Card>
           </div>
