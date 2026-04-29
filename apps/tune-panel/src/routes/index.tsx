@@ -3,7 +3,9 @@ import { createFileRoute } from '@tanstack/react-router'
 import { useLocalStorage } from '#/hooks/useLocalStorage'
 import { useTtsForm } from '#/hooks/useTtsForm'
 import { useTtsGenerate } from '#/hooks/useTtsGenerate'
-import type { TtsModel, VoiceMode, AudioFormat } from '#/lib/tts-types'
+import { useTtsStream } from '#/hooks/useTtsStream'
+import type { TtsModel, AudioFormat } from '#/lib/tts-types'
+import { BUILTIN_VOICES } from '#/lib/tts-types'
 
 import { ApiKeyInput } from '#/components/tts/ApiKeyInput'
 import { ModelSelect } from '#/components/tts/ModelSelect'
@@ -36,14 +38,19 @@ function Home() {
   // Get API key
   const { data: apiKey } = useLocalStorage('tts-api-key', '')
 
-  // Generate mutation
-  const generateMutation = useTtsGenerate((data) => {
-    setLastResult(data)
-    setIsPlaying(false)
-  })
+  // Compute effective userMessage based on voice mode
+  const effectiveUserMessage = useMemo(() => {
+    if (formData.voiceMode === 'design') {
+      // Voice design: voice description goes in user message
+      // Combine with style input if both exist
+      const parts = [formData.voiceDescription, formData.userMessage].filter(Boolean)
+      return parts.join('\n') || undefined
+    }
+    return formData.userMessage || undefined
+  }, [formData.voiceMode, formData.voiceDescription, formData.userMessage])
 
   // Get current voice based on mode
-  const getCurrentVoice = useCallback((): string | undefined => {
+  function getCurrentVoice(): string | undefined {
     switch (formData.voiceMode) {
       case 'builtin':
         return formData.builtinVoice
@@ -52,28 +59,85 @@ function Home() {
       default:
         return undefined
     }
-  }, [formData.voiceMode, formData.builtinVoice, formData.voiceCloneBase64])
+  }
+
+  // Get voice display name
+  const voiceName = useMemo(() => {
+    if (formData.voiceMode === 'builtin') {
+      const v = BUILTIN_VOICES.find((b) => b.id === formData.builtinVoice)
+      return v ? `${v.name} (${v.gender})` : undefined
+    }
+    return undefined
+  }, [formData.voiceMode, formData.builtinVoice])
+
+  // Non-streaming mutation (oRPC)
+  const generateMutation = useTtsGenerate((data) => {
+    setLastResult(data)
+    setIsPlaying(false)
+  })
+
+  // Streaming hook (tanstack/ai)
+  const streamHook = useTtsStream(
+    {
+      model: formData.model,
+      apiKey: apiKey || '',
+      userMessage: effectiveUserMessage,
+      voice: getCurrentVoice(),
+      format: formData.audioFormat,
+    },
+    (data) => {
+      setLastResult(data)
+      setIsPlaying(false)
+    },
+  )
 
   // Handle generate
   const handleGenerate = useCallback(() => {
     if (!apiKey) return
 
-    generateMutation.mutate({
-      apiKey,
-      model: formData.model,
-      userMessage: formData.userMessage || undefined,
-      assistantMessage: formData.assistantMessage,
-      audioFormat: formData.audioFormat,
-      voice: getCurrentVoice(),
-      stream: formData.stream,
-    })
-  }, [apiKey, formData, generateMutation, getCurrentVoice])
+    if (formData.stream) {
+      // Use tanstack/ai streaming
+      streamHook.generate({
+        text: formData.assistantMessage,
+        voice: getCurrentVoice(),
+        format: formData.audioFormat === 'pcm16' ? 'pcm' : 'wav',
+      })
+    } else {
+      // Use oRPC non-streaming
+      generateMutation.mutate({
+        apiKey,
+        model: formData.model,
+        userMessage: effectiveUserMessage,
+        assistantMessage: formData.assistantMessage,
+        audioFormat: formData.audioFormat,
+        voice: getCurrentVoice(),
+        stream: false,
+      })
+    }
+  }, [apiKey, formData, generateMutation, streamHook, effectiveUserMessage])
+
+  // Handle cancel
+  const handleCancel = useCallback(() => {
+    if (formData.stream) {
+      streamHook.stop()
+    }
+  }, [formData.stream, streamHook])
+
+  // Loading state
+  const isLoading = formData.stream
+    ? streamHook.isLoading
+    : generateMutation.isPending
+
+  // Error state
+  const error = formData.stream
+    ? streamHook.error?.message
+    : generateMutation.error?.message
 
   // Generate curl command
   const curlCommand = useMemo(() => {
     const messages = []
-    if (formData.userMessage) {
-      messages.push({ role: 'user', content: formData.userMessage })
+    if (effectiveUserMessage) {
+      messages.push({ role: 'user', content: effectiveUserMessage })
     }
     messages.push({ role: 'assistant', content: formData.assistantMessage })
 
@@ -92,7 +156,7 @@ function Home() {
   --header "api-key: ${apiKey || 'YOUR_API_KEY'}" \\
   --header 'Content-Type: application/json' \\
   --data-raw '${JSON.stringify(body, null, 2)}'`
-  }, [apiKey, formData])
+  }, [apiKey, formData, effectiveUserMessage])
 
   return (
     <div className="min-h-screen bg-background p-6">
@@ -125,6 +189,7 @@ function Home() {
                   <ModelSelect
                     value={formData.model}
                     onChange={(v) => updateField('model', v as TtsModel)}
+                    onVoiceModeChange={(v) => updateField('voiceMode', v)}
                   />
                   <AudioConfig
                     format={formData.audioFormat}
@@ -143,7 +208,6 @@ function Home() {
               </CardHeader>
               <CardContent>
                 <VoiceTabs
-                  model={formData.model}
                   voiceMode={formData.voiceMode}
                   builtinVoice={formData.builtinVoice}
                   voiceDescription={formData.voiceDescription}
@@ -152,6 +216,7 @@ function Home() {
                   onBuiltinVoiceChange={(v) => updateField('builtinVoice', v)}
                   onVoiceDescriptionChange={(v) => updateField('voiceDescription', v)}
                   onVoiceCloneChange={(v) => updateField('voiceCloneBase64', v)}
+                  onModelChange={(v) => updateField('model', v)}
                 />
               </CardContent>
             </Card>
@@ -175,17 +240,21 @@ function Home() {
 
             {/* Generate Button */}
             <GenerateButton
-              isLoading={generateMutation.isPending}
-              disabled={!apiKey || !formData.assistantMessage || generateMutation.isPending}
+              isLoading={isLoading}
+              disabled={!apiKey || !formData.assistantMessage || isLoading}
               onClick={handleGenerate}
+              onCancel={handleCancel}
+              voiceMode={formData.voiceMode}
+              voiceName={voiceName}
+              isStream={formData.stream}
             />
 
             {/* Error Display */}
-            {generateMutation.isError && (
+            {error && (
               <div className="bg-destructive/10 border border-destructive/50 rounded-lg p-4 text-destructive">
                 <p className="font-medium">Generation failed</p>
                 <pre className="text-sm mt-1 whitespace-pre-wrap break-all font-mono">
-                  {generateMutation.error?.message || JSON.stringify(generateMutation.error, null, 2)}
+                  {error}
                 </pre>
               </div>
             )}
@@ -244,7 +313,7 @@ function Home() {
                 <JsonViewer
                   requestBody={lastResult?.requestBody}
                   responseBody={lastResult?.responseBody}
-                  error={generateMutation.error?.message}
+                  error={error}
                 />
               </CardContent>
             </Card>

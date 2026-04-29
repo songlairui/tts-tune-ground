@@ -1,52 +1,52 @@
-import { BaseTTSAdapter } from '@tanstack/ai'
+import { BaseTTSAdapter, type TTSAdapterConfig } from '@tanstack/ai/adapters'
 import type { TTSOptions, TTSResult } from '@tanstack/ai'
 
 interface MimoTTSProviderOptions {
   userMessage?: string
-  stream?: boolean
-}
-
-interface MimoTTSConfig {
-  apiKey: string
-  baseUrl?: string
 }
 
 export class MimoTTSAdapter extends BaseTTSAdapter<string, MimoTTSProviderOptions> {
   readonly name = 'mimo-tts'
-  private apiKey: string
-  private baseUrl: string
 
-  constructor(model: string, config: MimoTTSConfig) {
+  constructor(model: string, config?: TTSAdapterConfig) {
     super(model, config)
-    this.apiKey = config.apiKey
-    this.baseUrl = config.baseUrl || 'https://api.xiaomimimo.com/v1'
   }
 
   async generateSpeech(options: TTSOptions<MimoTTSProviderOptions>): Promise<TTSResult> {
     const { text, voice, format = 'wav', modelOptions } = options
+    const apiKey = this.config.apiKey
+    const baseUrl = this.config.baseUrl || 'https://api.xiaomimimo.com/v1'
+
+    if (!apiKey) {
+      throw new Error('API Key is required')
+    }
 
     // Build messages array
-    const messages = []
+    const messages: Array<{ role: string; content: string }> = []
     if (modelOptions?.userMessage) {
       messages.push({ role: 'user', content: modelOptions.userMessage })
     }
     messages.push({ role: 'assistant', content: text })
 
     // Build request body
-    const requestBody = {
+    const requestBody: Record<string, unknown> = {
       model: this.model,
       messages,
       audio: {
         format: format === 'wav' ? 'wav' : 'pcm16',
-        ...(voice ? { voice } : {}),
       },
       stream: false,
     }
 
-    const response = await fetch(`${this.baseUrl}/chat/completions`, {
+    // Add voice for non-voicedesign models
+    if (this.model !== 'mimo-v2.5-tts-voicedesign' && voice) {
+      ;(requestBody.audio as Record<string, unknown>).voice = voice
+    }
+
+    const response = await fetch(`${baseUrl}/chat/completions`, {
       method: 'POST',
       headers: {
-        'api-key': this.apiKey,
+        'api-key': apiKey,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(requestBody),
@@ -72,7 +72,7 @@ export class MimoTTSAdapter extends BaseTTSAdapter<string, MimoTTSProviderOption
     }
 
     return {
-      id: this.generateId(),
+      id: `mimo-${Date.now()}`,
       model: this.model,
       audio: audioData,
       format: format === 'wav' ? 'wav' : 'pcm',
@@ -81,7 +81,6 @@ export class MimoTTSAdapter extends BaseTTSAdapter<string, MimoTTSProviderOption
   }
 }
 
-// Factory function
-export function mimoTTS(model: string, config: MimoTTSConfig): MimoTTSAdapter {
+export function mimoTTS(model: string, config?: TTSAdapterConfig): MimoTTSAdapter {
   return new MimoTTSAdapter(model, config)
 }

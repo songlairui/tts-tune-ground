@@ -1,3 +1,4 @@
+import { useCallback } from 'react'
 import {
   Select,
   SelectContent,
@@ -6,10 +7,12 @@ import {
   SelectValue,
 } from '#/components/ui/select'
 import { Label } from '#/components/ui/label'
+import type { VoiceMode } from '#/lib/tts-types'
 
 interface ModelSelectProps {
   value: string
   onChange: (value: string) => void
+  onVoiceModeChange?: (mode: VoiceMode) => void
 }
 
 const MODELS = [
@@ -17,24 +20,39 @@ const MODELS = [
     id: 'mimo-v2.5-tts',
     name: 'MiMo V2.5 TTS',
     desc: 'Built-in voices',
+    voiceMode: 'builtin' as VoiceMode,
   },
   {
     id: 'mimo-v2.5-tts-voicedesign',
     name: 'Voice Design',
     desc: 'Custom voice from text',
+    voiceMode: 'design' as VoiceMode,
   },
   {
     id: 'mimo-v2.5-tts-voiceclone',
     name: 'Voice Clone',
     desc: 'Clone from audio sample',
+    voiceMode: 'clone' as VoiceMode,
   },
 ]
 
-export function ModelSelect({ value, onChange }: ModelSelectProps) {
+export function ModelSelect({ value, onChange, onVoiceModeChange }: ModelSelectProps) {
+  const handleChange = useCallback(
+    (modelId: string) => {
+      onChange(modelId)
+      // Auto-switch voice mode to match model
+      const model = MODELS.find((m) => m.id === modelId)
+      if (model) {
+        onVoiceModeChange?.(model.voiceMode)
+      }
+    },
+    [onChange, onVoiceModeChange],
+  )
+
   return (
     <div className="flex-1">
       <Label className="text-xs text-muted-foreground">Model</Label>
-      <Select value={value} onValueChange={onChange}>
+      <Select value={value} onValueChange={handleChange}>
         <SelectTrigger>
           <SelectValue placeholder="Select model" />
         </SelectTrigger>

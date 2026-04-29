@@ -55,27 +55,44 @@ export const generateTts = os
       })
     }
 
-    // Handle streaming response
-    if (stream && audioFormat === 'pcm16') {
+    // Handle streaming response (both wav and pcm16)
+    if (stream) {
       const chunks: string[] = []
+      const rawChunks: string[] = []
       const reader = response.body?.getReader()
       const decoder = new TextDecoder()
 
       if (reader) {
+        let buffer = ''
         while (true) {
           const { done, value } = await reader.read()
           if (done) break
 
           const chunk = decoder.decode(value, { stream: true })
-          // Parse SSE format
-          const lines = chunk.split('\n')
+          buffer += chunk
+
+          // Process complete lines
+          const lines = buffer.split('\n')
+          buffer = lines.pop() || '' // Keep incomplete line in buffer
+
           for (const line of lines) {
-            if (line.startsWith('data: ')) {
-              const data = line.slice(6).trim()
+            const trimmed = line.trim()
+            if (!trimmed) continue
+
+            rawChunks.push(trimmed)
+
+            if (trimmed.startsWith('data: ')) {
+              const data = trimmed.slice(6).trim()
               if (data === '[DONE]') continue
+
               try {
                 const json = JSON.parse(data)
-                const audioChunk = json.choices?.[0]?.delta?.audio?.data
+                // Try different paths for audio data
+                const audioChunk =
+                  json.choices?.[0]?.delta?.audio?.data ||
+                  json.choices?.[0]?.message?.audio?.data ||
+                  json.audio?.data
+
                 if (audioChunk) {
                   chunks.push(audioChunk)
                 }
@@ -85,22 +102,31 @@ export const generateTts = os
             }
           }
         }
+
+        // Process remaining buffer
+        if (buffer.trim()) {
+          rawChunks.push(buffer.trim())
+        }
       }
 
       const audioData = chunks.join('')
       if (!audioData) {
         throw new ORPCError('INTERNAL_SERVER_ERROR', {
           message: 'No audio data in streaming response',
+          data: {
+            rawChunksCount: rawChunks.length,
+            sampleChunks: rawChunks.slice(0, 3),
+          },
         })
       }
 
       return {
         id: Date.now().toString(),
         audioData,
-        format: 'pcm16',
-        contentType: 'audio/pcm',
+        format: audioFormat,
+        contentType: audioFormat === 'wav' ? 'audio/wav' : 'audio/pcm',
         requestBody: JSON.stringify(requestBody, null, 2),
-        responseBody: JSON.stringify({ streaming: true, chunks: chunks.length }),
+        responseBody: JSON.stringify({ streaming: true, chunks: chunks.length, rawChunks: rawChunks.length }),
       }
     }
 

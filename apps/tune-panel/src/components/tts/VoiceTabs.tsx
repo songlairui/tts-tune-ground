@@ -1,3 +1,4 @@
+import { useCallback } from 'react'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '#/components/ui/tabs'
 import { Label } from '#/components/ui/label'
 import type { TtsModel, VoiceMode } from '#/lib/tts-types'
@@ -6,7 +7,6 @@ import { VoiceDesign } from './VoiceDesign'
 import { VoiceClone } from './VoiceClone'
 
 interface VoiceTabsProps {
-  model: TtsModel
   voiceMode: VoiceMode
   builtinVoice: string
   voiceDescription: string
@@ -15,10 +15,16 @@ interface VoiceTabsProps {
   onBuiltinVoiceChange: (voice: string) => void
   onVoiceDescriptionChange: (desc: string) => void
   onVoiceCloneChange: (base64: string) => void
+  onModelChange?: (model: TtsModel) => void
+}
+
+const VOICE_MODE_TO_MODEL: Record<VoiceMode, TtsModel> = {
+  builtin: 'mimo-v2.5-tts',
+  design: 'mimo-v2.5-tts-voicedesign',
+  clone: 'mimo-v2.5-tts-voiceclone',
 }
 
 export function VoiceTabs({
-  model,
   voiceMode,
   builtinVoice,
   voiceDescription,
@@ -27,41 +33,33 @@ export function VoiceTabs({
   onBuiltinVoiceChange,
   onVoiceDescriptionChange,
   onVoiceCloneChange,
+  onModelChange,
 }: VoiceTabsProps) {
-  // Determine which tabs are enabled based on model
-  const isBuiltinEnabled = model === 'mimo-v2.5-tts'
-  const isDesignEnabled = model === 'mimo-v2.5-tts-voicedesign'
-  const isCloneEnabled = model === 'mimo-v2.5-tts-voiceclone'
-
-  // Auto-select voice mode based on model
-  const handleModelTabChange = (tab: string) => {
-    onVoiceModeChange(tab as VoiceMode)
-  }
+  const handleTabChange = useCallback(
+    (tab: string) => {
+      const mode = tab as VoiceMode
+      onVoiceModeChange(mode)
+      // Auto-switch model to match voice mode
+      onModelChange?.(VOICE_MODE_TO_MODEL[mode])
+    },
+    [onVoiceModeChange, onModelChange],
+  )
 
   return (
     <div>
       <Label className="text-xs text-muted-foreground">Voice Mode</Label>
       <Tabs
         value={voiceMode}
-        onValueChange={handleModelTabChange}
+        onValueChange={handleTabChange}
       >
         <TabsList className="grid w-full grid-cols-3">
-          <TabsTrigger
-            value="builtin"
-            disabled={!isBuiltinEnabled}
-          >
+          <TabsTrigger value="builtin">
             内置音色
           </TabsTrigger>
-          <TabsTrigger
-            value="design"
-            disabled={!isDesignEnabled}
-          >
+          <TabsTrigger value="design">
             音色设计
           </TabsTrigger>
-          <TabsTrigger
-            value="clone"
-            disabled={!isCloneEnabled}
-          >
+          <TabsTrigger value="clone">
             音色克隆
           </TabsTrigger>
         </TabsList>
